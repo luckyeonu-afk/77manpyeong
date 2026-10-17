@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>다국어 음성 대화</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #6b7280;
+    --line: #dde1e7; --accent: #2563eb; --rec: #dc2626; --sub: #eef2ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --text: #e7eaf0; --muted: #9aa3b2;
+      --line: #2c3340; --accent: #60a5fa; --rec: #f87171; --sub: #1e2740;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.25rem; margin: 4px 0 16px; }
+  section {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px; margin-bottom: 14px;
+  }
+  h2 { font-size: 1rem; margin: 0 0 10px; }
+  .langs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  label { font-size: .85rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  select {
+    width: 100%; padding: 10px; font-size: 1rem; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
+  }
+  .row + .row { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--line); }
+  .row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .row-head strong { font-size: 1rem; }
+  .row-head .lang-tag { color: var(--muted); font-size: .85rem; font-weight: normal; }
+  button.mic {
+    border: none; border-radius: 999px; padding: 10px 16px; font-size: .95rem;
+    background: var(--accent); color: #fff; cursor: pointer; white-space: nowrap;
+  }
+  button.mic.on { background: var(--rec); }
+  button.mic:disabled { opacity: .5; cursor: not-allowed; }
+  .box {
+    min-height: 64px; padding: 10px; border: 1px solid var(--line); border-radius: 8px;
+    font-size: 1.05rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  }
+  .box:empty::before { content: attr(data-placeholder); color: var(--muted); }
+  .box .interim { color: var(--muted); }
+  .trans {
+    margin-top: 8px; padding: 10px; border-radius: 8px; background: var(--sub);
+    font-size: 1.05rem; line-height: 1.5; min-height: 44px; white-space: pre-wrap; word-break: break-word;
+  }
+  .trans:empty::before { content: attr(data-placeholder); color: var(--muted); }
+  .actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+  .actions button {
+    background: none; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 8px; padding: 8px 12px; cursor: pointer;
+  }
+  .notice { font-size: .85rem; color: var(--muted); margin: 0; }
+  .notice.warn { color: var(--rec); }
+</style>
+</head>
+<body>
+<main>
+  <h1>다국어 음성 대화</h1>
+
+  <!-- 언어 메뉴 -->
+  <section aria-labelledby="lang-title">
+    <h2 id="lang-title">언어 선택</h2>
+    <div class="langs">
+      <div>
+        <label for="lang-q">질문하는 사람</label>
+        <select id="lang-q"></select>
+      </div>
+      <div>
+        <label for="lang-a">대답하는 사람</label>
+        <select id="lang-a"></select>
+      </div>
+    </div>
+  </section>
+
+  <!-- 질문 / 대답 의사소통 공간 -->
+  <section aria-labelledby="talk-title">
+    <h2 id="talk-title">대화</h2>
+
+    <div class="row" data-role="q">
+      <div class="row-head">
+        <strong>질문 <span class="lang-tag"></span></strong>
+        <button class="mic" type="button">🎤 말하기</button>
+      </div>
+      <div class="box" data-placeholder="버튼을 누르고 말하면 여기에 글로 써집니다"></div>
+      <div class="trans" data-placeholder="상대 언어 번역"></div>
+    </div>
+
+    <div class="row" data-role="a">
+      <div class="row-head">
+        <strong>대답 <span class="lang-tag"></span></strong>
+        <button class="mic" type="button">🎤 말하기</button>
+      </div>
+      <div class="box" data-placeholder="버튼을 누르고 말하면 여기에 글로 써집니다"></div>
+      <div class="trans" data-placeholder="상대 언어 번역"></div>
+    </div>
+
+    <div class="actions"><button type="button" id="clear">지우기</button></div>
+  </section>
+
+  <p class="notice" id="notice"></p>
+</main>
+
+<script>
+// 번역 서버 주소 (worker.js 를 배포한 URL). 비워두면 번역 없이 받아쓰기만 동작합니다.
+const TRANSLATE_ENDPOINT = "";
+
+// speech: 음성인식 언어 코드, tr: 번역 언어 코드
+const LANGUAGES = [
+  { name: "한국어", speech: "ko-KR", tr: "ko" },
+  { name: "English", speech: "en-US", tr: "en" },
+  { name: "日本語", speech: "ja-JP", tr: "ja" },
+  { name: "中文(简体)", speech: "zh-CN", tr: "zh-CN" },
+  { name: "Tiếng Việt", speech: "vi-VN", tr: "vi" },
+  { name: "ภาษาไทย", speech: "th-TH", tr: "th" },
+  { name: "Bahasa Indonesia", speech: "id-ID", tr: "id" },
+  { name: "Español", speech: "es-ES", tr: "es" },
+  { name: "Français", speech: "fr-FR", tr: "fr" },
+  { name: "Deutsch", speech: "de-DE", tr: "de" },
+  { name: "Русский", speech: "ru-RU", tr: "ru" },
+  { name: "Монгол", speech: "mn-MN", tr: "mn" },
+  { name: "O'zbek", speech: "uz-UZ", tr: "uz" },
+];
+
+const selQ = document.getElementById("lang-q");
+const selA = document.getElementById("lang-a");
+const notice = document.getElementById("notice");
+
+for (const sel of [selQ, selA]) {
+  LANGUAGES.forEach((l, i) => sel.add(new Option(l.name, i)));
+}
+selQ.value = 0;
+selA.value = 1;
+
+const rows = {};
+for (const el of document.querySelectorAll(".row")) {
+  rows[el.dataset.role] = {
+    el,
+    tag: el.querySelector(".lang-tag"),
+    btn: el.querySelector(".mic"),
+    box: el.querySelector(".box"),
+    trans: el.querySelector(".trans"),
+    finalText: "",
+  };
+}
+
+// 질문 행은 질문자 언어로 말하고 대답자 언어로 번역, 대답 행은 그 반대
+function langsFor(role) {
+  const q = LANGUAGES[selQ.value], a = LANGUAGES[selA.value];
+  return role === "q" ? { from: q, to: a } : { from: a, to: q };
+}
+
+function refreshTags() {
+  for (const role of ["q", "a"]) {
+    const { from, to } = langsFor(role);
+    rows[role].tag.textContent = "(" + from.name + ")";
+    rows[role].trans.dataset.placeholder = to.name + " 번역";
+  }
+}
+selQ.addEventListener("change", () => { refreshTags(); retranslateAll(); });
+selA.addEventListener("change", () => { refreshTags(); retranslateAll(); });
+refreshTags();
+
+function setNotice(msg, warn) {
+  notice.textContent = msg || "";
+  notice.className = "notice" + (warn ? " warn" : "");
+}
+
+// ---- 번역 ----
+async function translate(text, from, to) {
+  if (!TRANSLATE_ENDPOINT || !text.trim()) return "";
+  if (from.tr === to.tr) return text;
+  const res = await fetch(TRANSLATE_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ q: text, source: from.tr, target: to.tr }),
+  });
+  if (!res.ok) throw new Error("번역 실패 (" + res.status + ")");
+  const data = await res.json();
+  return data.translatedText || "";
+}
+
+async function translateRow(role) {
+  const row = rows[role];
+  if (!TRANSLATE_ENDPOINT) return;
+  const { from, to } = langsFor(role);
+  const text = row.finalText;
+  try {
+    const out = await translate(text, from, to);
+    if (row.finalText === text) row.trans.textContent = out;
+  } catch (e) {
+    setNotice(e.message, true);
+  }
+}
+
+function retranslateAll() {
+  translateRow("q");
+  translateRow("a");
+}
+
+// ---- 음성인식 ----
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let active = null; // { role, rec }
+
+if (!Recognition) {
+  for (const r of Object.values(rows)) r.btn.disabled = true;
+  setNotice("이 브라우저는 음성인식을 지원하지 않습니다. Chrome, Edge, Safari 를 사용해 주세요.", true);
+} else if (!TRANSLATE_ENDPOINT) {
+  setNotice("번역 서버가 설정되지 않아 받아쓰기만 동작합니다. (index.html 의 TRANSLATE_ENDPOINT)");
+}
+
+function renderBox(row, interim) {
+  row.box.textContent = row.finalText;
+  if (interim) {
+    const span = document.createElement("span");
+    span.className = "interim";
+    span.textContent = (row.finalText ? " " : "") + interim;
+    row.box.appendChild(span);
+  }
+}
+
+function stop() {
+  if (active) active.rec.stop();
+}
+
+function start(role) {
+  const row = rows[role];
+  const { from } = langsFor(role);
+  const rec = new Recognition();
+  rec.lang = from.speech;
+  rec.interimResults = true;
+  rec.continuous = true;
+
+  row.finalText = "";
+  row.trans.textContent = "";
+  renderBox(row, "");
+
+  rec.onresult = (ev) => {
+    let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) {
+        row.finalText = (row.finalText + " " + r[0].transcript).trim();
+        translateRow(role);
+      } else {
+        interim += r[0].transcript;
+      }
+    }
+    renderBox(row, interim);
+  };
+  rec.onerror = (ev) => {
+    if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+      setNotice("마이크 권한이 필요합니다. 브라우저 설정에서 허용해 주세요.", true);
+    } else if (ev.error !== "no-speech" && ev.error !== "aborted") {
+      setNotice("음성인식 오류: " + ev.error, true);
+    }
+  };
+  rec.onend = () => {
+    row.btn.classList.remove("on");
+    row.btn.textContent = "🎤 말하기";
+    renderBox(row, "");
+    if (active && active.rec === rec) active = null;
+  };
+
+  rec.start();
+  active = { role, rec };
+  row.btn.classList.add("on");
+  row.btn.textContent = "⏹ 멈추기";
+}
+
+for (const [role, row] of Object.entries(rows)) {
+  row.btn.addEventListener("click", () => {
+    const wasMine = active && active.role === role;
+    stop();
+    if (!wasMine) start(role);
+  });
+}
+
+document.getElementById("clear").addEventListener("click", () => {
+  stop();
+  for (const row of Object.values(rows)) {
+    row.finalText = "";
+    row.box.textContent = "";
+    row.trans.textContent = "";
+  }
+});
+</script>
+</body>
+</html>
