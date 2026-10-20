@@ -331,7 +331,8 @@ for (const [role, row] of Object.entries(rows)) {
 // ---- 읽기 (브라우저 내장 음성) ----
 const synth = window.speechSynthesis;
 
-function speak(role) {
+// delayMs: 자동 읽기는 마이크가 완전히 꺼진 뒤 읽도록 잠시 기다림 (버튼으로 읽을 때는 바로 읽음)
+function speak(role, delayMs = 0) {
   const row = rows[role];
   const text = row.trans.textContent.trim();
   if (!synth || !text) return;
@@ -345,7 +346,13 @@ function speak(role) {
   const voice = voices.find((v) => norm(v) === to.speech)
     || voices.find((v) => norm(v).startsWith(to.speech.slice(0, 2)));
   if (voice) u.voice = voice;
-  synth.speak(u);
+  u.onerror = (e) => {
+    if (e.error !== "interrupted" && e.error !== "canceled") {
+      setNotice("읽기 오류(" + e.error + "): 🔊 버튼을 눌러 주세요", true);
+    }
+  };
+  if (delayMs > 0) setTimeout(() => synth.speak(u), delayMs);
+  else synth.speak(u);
 }
 
 // ---- 자동 읽기 ----
@@ -354,8 +361,10 @@ try { autoRead.checked = localStorage.getItem("autoRead") === "1"; } catch {}
 let synthUnlocked = false;
 
 // iPhone Safari 는 화면을 누른 순간에만 소리를 낼 수 있어서, 누를 때 빈 소리를 한 번 내서 풀어 둠
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 function unlockSynth() {
-  if (!synth || synthUnlocked || !autoRead.checked) return;
+  if (!synth || !isIOS || synthUnlocked || !autoRead.checked) return;
   synth.speak(new SpeechSynthesisUtterance(""));
   synthUnlocked = true;
 }
@@ -377,7 +386,7 @@ function autoSpeak(role) {
     if (active.role === role) rows[role].pendingSpeak = true;
     return;
   }
-  speak(role);
+  speak(role, 600);
 }
 
 for (const [role, row] of Object.entries(rows)) {
