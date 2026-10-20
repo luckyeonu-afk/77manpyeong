@@ -53,6 +53,13 @@
     margin-top: 8px; padding: 10px; border-radius: 8px; background: var(--sub);
     font-size: 1.05rem; line-height: 1.5; min-height: 44px; white-space: pre-wrap; word-break: break-word;
   }
+  .trans-wrap { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; }
+  .trans-wrap .trans { flex: 1; margin-top: 0; }
+  button.speak {
+    flex: none; width: 48px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--card); font-size: 1.2rem; cursor: pointer;
+  }
+  button.speak:disabled { opacity: .4; cursor: not-allowed; }
   .trans:empty::before { content: attr(data-placeholder); color: var(--muted); }
   .actions { display: flex; justify-content: flex-end; margin-top: 12px; }
   .actions button {
@@ -92,7 +99,10 @@
         <button class="mic" type="button">🎤 말하기</button>
       </div>
       <div class="box" data-placeholder="버튼을 누르고 말하면 여기에 글로 써집니다"></div>
-      <div class="trans" data-placeholder="상대 언어 번역"></div>
+      <div class="trans-wrap">
+        <div class="trans" data-placeholder="상대 언어 번역"></div>
+        <button class="speak" type="button" aria-label="번역 읽기">🔊</button>
+      </div>
     </div>
 
     <div class="row" data-role="a">
@@ -101,7 +111,10 @@
         <button class="mic" type="button">🎤 말하기</button>
       </div>
       <div class="box" data-placeholder="버튼을 누르고 말하면 여기에 글로 써집니다"></div>
-      <div class="trans" data-placeholder="상대 언어 번역"></div>
+      <div class="trans-wrap">
+        <div class="trans" data-placeholder="상대 언어 번역"></div>
+        <button class="speak" type="button" aria-label="번역 읽기">🔊</button>
+      </div>
     </div>
 
     <div class="actions"><button type="button" id="clear">지우기</button></div>
@@ -114,12 +127,12 @@
 // 번역 서버 주소 (worker.js 를 배포한 URL). 비워두면 번역 없이 받아쓰기만 동작합니다.
 const TRANSLATE_ENDPOINT = "";
 
-// speech: 음성인식 언어 코드, tr: 번역 언어 코드
+// speech: 음성인식·읽기 언어 코드, tr: Azure 번역 언어 코드
 const LANGUAGES = [
   { name: "한국어", speech: "ko-KR", tr: "ko" },
   { name: "English", speech: "en-US", tr: "en" },
   { name: "日本語", speech: "ja-JP", tr: "ja" },
-  { name: "中文(简体)", speech: "zh-CN", tr: "zh-CN" },
+  { name: "中文(简体)", speech: "zh-CN", tr: "zh-Hans" },
   { name: "Tiếng Việt", speech: "vi-VN", tr: "vi" },
   { name: "ภาษาไทย", speech: "th-TH", tr: "th" },
   { name: "Bahasa Indonesia", speech: "id-ID", tr: "id" },
@@ -127,7 +140,7 @@ const LANGUAGES = [
   { name: "Français", speech: "fr-FR", tr: "fr" },
   { name: "Deutsch", speech: "de-DE", tr: "de" },
   { name: "Русский", speech: "ru-RU", tr: "ru" },
-  { name: "Монгол", speech: "mn-MN", tr: "mn" },
+  { name: "Монгол", speech: "mn-MN", tr: "mn-Cyrl" },
   { name: "O'zbek", speech: "uz-UZ", tr: "uz" },
 ];
 
@@ -149,6 +162,7 @@ for (const el of document.querySelectorAll(".row")) {
     btn: el.querySelector(".mic"),
     box: el.querySelector(".box"),
     trans: el.querySelector(".trans"),
+    speak: el.querySelector(".speak"),
     finalText: "",
   };
 }
@@ -184,8 +198,8 @@ async function translate(text, from, to) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ q: text, source: from.tr, target: to.tr }),
   });
-  if (!res.ok) throw new Error("번역 실패 (" + res.status + ")");
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "번역 실패 (" + res.status + ")");
   return data.translatedText || "";
 }
 
@@ -294,8 +308,34 @@ for (const [role, row] of Object.entries(rows)) {
   });
 }
 
+// ---- 읽기 (브라우저 내장 음성) ----
+const synth = window.speechSynthesis;
+
+function speak(role) {
+  const row = rows[role];
+  const text = row.trans.textContent.trim();
+  if (!synth || !text) return;
+  stop(); // 읽는 소리가 마이크에 다시 들어가지 않도록 받아쓰기를 멈춤
+  synth.cancel();
+  const { to } = langsFor(role);
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = to.speech;
+  const voices = synth.getVoices();
+  const norm = (v) => v.lang.replace("_", "-");
+  const voice = voices.find((v) => norm(v) === to.speech)
+    || voices.find((v) => norm(v).startsWith(to.speech.slice(0, 2)));
+  if (voice) u.voice = voice;
+  synth.speak(u);
+}
+
+for (const [role, row] of Object.entries(rows)) {
+  if (!synth) row.speak.disabled = true;
+  row.speak.addEventListener("click", () => speak(role));
+}
+
 document.getElementById("clear").addEventListener("click", () => {
   stop();
+  if (synth) synth.cancel();
   for (const row of Object.values(rows)) {
     row.finalText = "";
     row.box.textContent = "";
