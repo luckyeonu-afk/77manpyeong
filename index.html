@@ -244,16 +244,25 @@ function start(role) {
   row.trans.textContent = "";
   renderBox(row, "");
 
+  // 모바일 Chrome 은 앞 결과를 누적해서 다시 보내므로, 매번 전체 결과로 다시 만들고 겹치는 부분은 합칩니다
   rec.onresult = (ev) => {
+    const segs = [];
     let interim = "";
-    for (let i = ev.resultIndex; i < ev.results.length; i++) {
-      const r = ev.results[i];
-      if (r.isFinal) {
-        row.finalText = (row.finalText + " " + r[0].transcript).trim();
-        translateRow(role);
-      } else {
-        interim += r[0].transcript;
-      }
+    for (let i = 0; i < ev.results.length; i++) {
+      const t = ev.results[i][0].transcript.trim();
+      if (!t) continue;
+      if (!ev.results[i].isFinal) { interim = t; continue; }
+      const last = segs[segs.length - 1];
+      if (last && t.startsWith(last)) segs[segs.length - 1] = t;
+      else if (!(last && last.startsWith(t))) segs.push(t);
+    }
+    const last = segs[segs.length - 1];
+    if (last && interim.startsWith(last)) interim = interim.slice(last.length).trim();
+
+    const text = segs.join(" ");
+    if (text !== row.finalText) {
+      row.finalText = text;
+      translateRow(role);
     }
     renderBox(row, interim);
   };
