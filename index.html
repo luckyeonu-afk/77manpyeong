@@ -185,8 +185,14 @@ function refreshTags() {
     rows[role].trans.dataset.placeholder = to.name + " 번역";
   }
 }
-selQ.addEventListener("change", () => { refreshTags(); retranslateAll(); });
-selA.addEventListener("change", () => { refreshTags(); retranslateAll(); });
+// 언어를 고르면 자동 읽기를 켬 (끄고 싶으면 스위치로 끌 수 있음)
+function onLangChange() {
+  refreshTags();
+  retranslateAll();
+  setAutoRead(true);
+}
+selQ.addEventListener("change", onLangChange);
+selA.addEventListener("change", onLangChange);
 refreshTags();
 
 function setNotice(msg, warn) {
@@ -354,10 +360,14 @@ function unlockSynth() {
   synthUnlocked = true;
 }
 
-autoRead.addEventListener("change", () => {
-  try { localStorage.setItem("autoRead", autoRead.checked ? "1" : "0"); } catch {}
+function setAutoRead(on) {
+  if (!synth) return;
+  autoRead.checked = on;
+  try { localStorage.setItem("autoRead", on ? "1" : "0"); } catch {}
   unlockSynth();
-});
+}
+
+autoRead.addEventListener("change", () => setAutoRead(autoRead.checked));
 if (!synth) autoRead.disabled = true;
 
 // 말하는 중이면 끝난 뒤 읽고, 다른 사람이 말하는 중이면 방해하지 않도록 읽지 않음
