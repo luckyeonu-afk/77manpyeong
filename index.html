@@ -60,6 +60,8 @@
     background: var(--card); font-size: 1.2rem; cursor: pointer;
   }
   button.speak:disabled { opacity: .4; cursor: not-allowed; }
+  button.speak.hint { animation: hint 1s ease-in-out infinite; border-color: var(--accent); }
+  @keyframes hint { 50% { background: var(--sub); transform: scale(1.12); } }
   .trans:empty::before { content: attr(data-placeholder); color: var(--muted); }
   .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
   .auto { display: flex; align-items: center; gap: 6px; font-size: .95rem; cursor: pointer; }
@@ -332,12 +334,14 @@ for (const [role, row] of Object.entries(rows)) {
 const synth = window.speechSynthesis;
 
 // delayMs: 자동 읽기는 마이크가 완전히 꺼진 뒤 읽도록 잠시 기다림 (버튼으로 읽을 때는 바로 읽음)
-function speak(role, delayMs = 0) {
+// 자동 읽기가 시작되지 않으면 한 번 더 시도하고, 그래도 안 되면 🔊 버튼을 깜빡여 눌러 달라고 알림
+function speak(role, delayMs = 0, retried = false) {
   const row = rows[role];
   const text = row.trans.textContent.trim();
   if (!synth || !text) return;
   stop(); // 읽는 소리가 마이크에 다시 들어가지 않도록 받아쓰기를 멈춤
   synth.cancel();
+  row.speak.classList.remove("hint");
   const { to } = langsFor(role);
   const u = new SpeechSynthesisUtterance(text);
   u.lang = to.speech;
@@ -346,13 +350,45 @@ function speak(role, delayMs = 0) {
   const voice = voices.find((v) => norm(v) === to.speech)
     || voices.find((v) => norm(v).startsWith(to.speech.slice(0, 2)));
   if (voice) u.voice = voice;
+
+  const auto = delayMs > 0;
+  let started = false;
+  u.onstart = () => {
+    started = true;
+    if (auto) setNotice("🔊 읽는 중…");
+  };
+  u.onend = () => {
+    if (auto && started) setNotice("");
+  };
   u.onerror = (e) => {
     if (e.error !== "interrupted" && e.error !== "canceled") {
+      row.speak.classList.add("hint");
       setNotice("읽기 오류(" + e.error + "): 🔊 버튼을 눌러 주세요", true);
     }
   };
-  if (delayMs > 0) setTimeout(() => synth.speak(u), delayMs);
-  else synth.speak(u);
+
+  const go = () => {
+    synth.resume(); // Android Chrome 에서 멈춤 상태로 남아 있는 경우가 있어 풀어 줌
+    synth.speak(u);
+    if (!auto) return;
+    setTimeout(() => {
+      if (started || row.trans.textContent.trim() !== text) return;
+      if (!retried) {
+        setNotice("🔊 자동 읽기 다시 시도…");
+        speak(role, 800, true);
+      } else {
+        synth.cancel();
+        row.speak.classList.add("hint");
+        setNotice("이 휴대폰이 자동 읽기를 막았어요. 깜빡이는 🔊 버튼을 눌러 주세요", true);
+      }
+    }, 2000);
+  };
+  if (auto) {
+    setNotice("🔊 자동 읽기 준비…");
+    setTimeout(go, delayMs);
+  } else {
+    go();
+  }
 }
 
 // ---- 자동 읽기 ----
