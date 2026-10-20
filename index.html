@@ -268,7 +268,8 @@ function start(role) {
   const rec = new Recognition();
   rec.lang = from.speech;
   rec.interimResults = true;
-  rec.continuous = true;
+  // 자동 읽기가 켜져 있으면 한 문장 말하고 멈추면 마이크가 저절로 꺼지고 바로 읽음
+  rec.continuous = !autoRead.checked;
 
   row.finalText = "";
   row.trans.textContent = "";
