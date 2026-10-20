@@ -61,7 +61,9 @@
   }
   button.speak:disabled { opacity: .4; cursor: not-allowed; }
   .trans:empty::before { content: attr(data-placeholder); color: var(--muted); }
-  .actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+  .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  .auto { display: flex; align-items: center; gap: 6px; font-size: .95rem; cursor: pointer; }
+  .auto input { width: 20px; height: 20px; margin: 0; }
   .actions button {
     background: none; border: 1px solid var(--line); color: var(--muted);
     border-radius: 8px; padding: 8px 12px; cursor: pointer;
@@ -117,7 +119,10 @@
       </div>
     </div>
 
-    <div class="actions"><button type="button" id="clear">지우기</button></div>
+    <div class="actions">
+      <label class="auto"><input type="checkbox" id="auto-read"> 🔊 자동 읽기</label>
+      <button type="button" id="clear">지우기</button>
+    </div>
   </section>
 
   <p class="notice" id="notice"></p>
@@ -203,14 +208,17 @@ async function translate(text, from, to) {
   return data.translatedText || "";
 }
 
-async function translateRow(role) {
+// auto: 받아쓰기에서 온 번역이면 true (언어만 바꿨을 때는 자동으로 읽지 않음)
+async function translateRow(role, auto) {
   const row = rows[role];
   if (!TRANSLATE_ENDPOINT) return;
   const { from, to } = langsFor(role);
   const text = row.finalText;
   try {
     const out = await translate(text, from, to);
-    if (row.finalText === text) row.trans.textContent = out;
+    if (row.finalText !== text) return;
+    row.trans.textContent = out;
+    if (auto) autoSpeak(role);
   } catch (e) {
     setNotice(e.message, true);
   }
@@ -256,6 +264,7 @@ function start(role) {
 
   row.finalText = "";
   row.trans.textContent = "";
+  row.pendingSpeak = false;
   renderBox(row, "");
 
   // 모바일 Chrome 은 앞 결과를 누적해서 다시 보내므로, 매번 전체 결과로 다시 만들고 겹치는 부분은 합칩니다
@@ -276,7 +285,7 @@ function start(role) {
     const text = segs.join(" ");
     if (text !== row.finalText) {
       row.finalText = text;
-      translateRow(role);
+      translateRow(role, true);
     }
     renderBox(row, interim);
   };
@@ -292,6 +301,10 @@ function start(role) {
     row.btn.textContent = "🎤 말하기";
     renderBox(row, "");
     if (active && active.rec === rec) active = null;
+    if (row.pendingSpeak) {
+      row.pendingSpeak = false;
+      autoSpeak(role);
+    }
   };
 
   rec.start();
@@ -302,6 +315,7 @@ function start(role) {
 
 for (const [role, row] of Object.entries(rows)) {
   row.btn.addEventListener("click", () => {
+    unlockSynth();
     const wasMine = active && active.role === role;
     stop();
     if (!wasMine) start(role);
@@ -326,6 +340,34 @@ function speak(role) {
     || voices.find((v) => norm(v).startsWith(to.speech.slice(0, 2)));
   if (voice) u.voice = voice;
   synth.speak(u);
+}
+
+// ---- 자동 읽기 ----
+const autoRead = document.getElementById("auto-read");
+try { autoRead.checked = localStorage.getItem("autoRead") === "1"; } catch {}
+let synthUnlocked = false;
+
+// iPhone Safari 는 화면을 누른 순간에만 소리를 낼 수 있어서, 누를 때 빈 소리를 한 번 내서 풀어 둠
+function unlockSynth() {
+  if (!synth || synthUnlocked || !autoRead.checked) return;
+  synth.speak(new SpeechSynthesisUtterance(""));
+  synthUnlocked = true;
+}
+
+autoRead.addEventListener("change", () => {
+  try { localStorage.setItem("autoRead", autoRead.checked ? "1" : "0"); } catch {}
+  unlockSynth();
+});
+if (!synth) autoRead.disabled = true;
+
+// 말하는 중이면 끝난 뒤 읽고, 다른 사람이 말하는 중이면 방해하지 않도록 읽지 않음
+function autoSpeak(role) {
+  if (!autoRead.checked) return;
+  if (active) {
+    if (active.role === role) rows[role].pendingSpeak = true;
+    return;
+  }
+  speak(role);
 }
 
 for (const [role, row] of Object.entries(rows)) {
