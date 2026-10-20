@@ -268,8 +268,7 @@ function start(role) {
   const rec = new Recognition();
   rec.lang = from.speech;
   rec.interimResults = true;
-  // 자동 읽기가 켜져 있으면 한 문장 말하고 멈추면 마이크가 저절로 꺼지고 바로 읽음
-  rec.continuous = !autoRead.checked;
+  rec.continuous = true;
 
   row.finalText = "";
   row.trans.textContent = "";
@@ -297,15 +296,26 @@ function start(role) {
       translateRow(role, true);
     }
     renderBox(row, interim);
+
+    // 자동 읽기가 켜져 있으면 말이 끝나고 잠시 조용하면 마이크를 끄고 읽음 (⏹ 를 누른 것과 같음)
+    clearTimeout(row.silenceTimer);
+    if (autoRead.checked && text) {
+      row.silenceTimer = setTimeout(() => {
+        if (active && active.rec === rec) rec.stop();
+      }, 1500);
+    }
   };
   rec.onerror = (ev) => {
     if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
       setNotice("마이크 권한이 필요합니다. 브라우저 설정에서 허용해 주세요.", true);
-    } else if (ev.error !== "no-speech" && ev.error !== "aborted") {
+    } else if (ev.error === "no-speech") {
+      setNotice("말소리가 들리지 않았어요. 🎤 를 누르고 다시 말해 주세요.");
+    } else if (ev.error !== "aborted") {
       setNotice("음성인식 오류: " + ev.error, true);
     }
   };
   rec.onend = () => {
+    clearTimeout(row.silenceTimer);
     row.btn.classList.remove("on");
     row.btn.textContent = "🎤 말하기";
     renderBox(row, "");
